@@ -549,7 +549,7 @@
 
   // --- Registro del Service Worker (ahora sí, mismo dominio que la página) ---
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw2.js')
+    navigator.serviceWorker.register('sw.js')
       .then(() => console.log('Service Worker registrado correctamente.'))
       .catch(err => console.log('No se pudo registrar el Service Worker:', err));
   }
