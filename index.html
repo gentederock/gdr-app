@@ -4,14 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Portal de Pagos - Gente de Rock</title>
-
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#c0392b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="GDR Pagos">
-  <link rel="apple-touch-icon" href="icon-192.png">
-
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: #f4f4f4; padding: 20px; }
@@ -137,8 +134,72 @@
 </div>
 
 <script>
+  // ============== CONFIG ==============
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
 
+  // ============== JSONP HELPER ==============
+  let __jsonpCounter = 0;
+  function jsonpCall(params) {
+    return new Promise((resolve, reject) => {
+      __jsonpCounter++;
+      const callbackName = '__jsonp_cb_' + __jsonpCounter;
+      const script = document.createElement('script');
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Tiempo de espera agotado. Probá de nuevo.'));
+      }, 20000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        delete window[callbackName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[callbackName] = function(data) {
+        cleanup();
+        resolve(data);
+      };
+
+      const qs = new URLSearchParams(params);
+      qs.set('callback', callbackName);
+      script.src = APPS_SCRIPT_URL + '?' + qs.toString();
+      script.onerror = function() {
+        cleanup();
+        reject(new Error('No se pudo conectar con el servidor.'));
+      };
+      document.body.appendChild(script);
+    });
+  }
+
+  // ============== POST + POLLING (solo para enviar comprobante) ==============
+  function postSinEspeada(payload) {
+    return fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+  }
+
+  function esperarResultado(idOperacion, intentos) {
+    intentos = intentos || 0;
+    return jsonpCall({ accion: 'consultarResultado', idOperacion: idOperacion })
+      .then(resultado => {
+        if (resultado && resultado.pendiente) {
+          if (intentos > 20) throw new Error('El servidor tardó demasiado. Revisá tu conexión e intentá de nuevo.');
+          return new Promise(resolve => setTimeout(resolve, 1500))
+            .then(() => esperarResultado(idOperacion, intentos + 1));
+        }
+        return resultado;
+      });
+  }
+
+  function generarIdOperacion() {
+    return 'op_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  }
+
+  // ============== SEDES INFO ==============
   const SEDES_INFO = {
     'Belgrano L20': { nombre: 'Lunes en Belgrano 20hs',         cuenta: 'gdr.prin.uala', titular: 'Sebastian Raul Zunda' },
     'Belgrano L21': { nombre: 'Lunes en Belgrano 21hs',         cuenta: 'gente.de.rock', titular: 'Juan Manuel Aron' },
@@ -162,94 +223,12 @@
   let datosAlumno = null;
   let datosPareja = null;
   let nombreSeleccionado = null;
-  let jsonpContador = 0;
 
-  function apiGetIntento(accion, params) {
-    return new Promise((resolve, reject) => {
-      jsonpContador++;
-      const nombreCallback = 'jsonpCallback_' + jsonpContador;
-      const nombreIframe = 'jsonpIframe_' + jsonpContador;
-
-      window[nombreCallback] = function(data) {
-        delete window[nombreCallback];
-        setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 100);
-        resolve(data);
-      };
-
-      const url = new URL(APPS_SCRIPT_URL);
-      url.searchParams.set('accion', accion);
-      url.searchParams.set('callback', nombreCallback);
-      Object.keys(params || {}).forEach(k => url.searchParams.set(k, params[k]));
-
-      const iframe = document.createElement('iframe');
-      iframe.name = nombreIframe;
-      iframe.style.display = 'none';
-      iframe.loading = 'eager';
-      iframe.referrerPolicy = 'no-referrer';
-      document.body.appendChild(iframe);
-      iframe.src = url.toString();
-
-      setTimeout(() => {
-        if (window[nombreCallback]) {
-          delete window[nombreCallback];
-          if (iframe.parentNode) document.body.removeChild(iframe);
-          reject(new Error('No se pudo conectar con el servidor.'));
-        }
-      }, 8000);
-    });
-  }
-
-  // El navegador a veces "gasta" la URL de un solo uso antes de tiempo
-  // (precarga especulativa). Si el primer intento falla, reintentamos
-  // automáticamente una vez más con una petición nueva, sin que el
-  // alumno note nada raro.
-  function apiGet(accion, params) {
-    return apiGetIntento(accion, params).catch(() => apiGetIntento(accion, params));
-  }
-
-  function apiPost(body) {
-    return new Promise((resolve, reject) => {
-      jsonpContador++;
-      const idOperacion = 'op_' + Date.now() + '_' + jsonpContador;
-      const bodyConId = Object.assign({}, body, { idOperacion: idOperacion });
-
-      fetch(APPS_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(bodyConId)
-      }).catch(() => {});
-
-      let intentos = 0;
-      const maxIntentos = 25;
-
-      const intervalo = setInterval(() => {
-        intentos++;
-        apiGet('consultarResultado', { idOperacion: idOperacion })
-          .then(resultado => {
-            if (resultado && resultado.pendiente) {
-              if (intentos >= maxIntentos) {
-                clearInterval(intervalo);
-                reject(new Error('Tiempo de espera agotado. Probá de nuevo.'));
-              }
-              return;
-            }
-            clearInterval(intervalo);
-            resolve(resultado);
-          })
-          .catch(() => {
-            if (intentos >= maxIntentos) {
-              clearInterval(intervalo);
-              reject(new Error('Tiempo de espera agotado. Probá de nuevo.'));
-            }
-          });
-      }, 2000);
-    });
-  }
-
-  apiGet('mesNombre').then(resultado => {
-    document.getElementById('subtitulo').textContent = 'Portal de Pagos de Clases — ' + resultado.mes + ' 2026';
-  });
+  jsonpCall({ accion: 'mesNombre' })
+    .then(data => {
+      document.getElementById('subtitulo').textContent = 'Portal de Pagos de Clases — ' + data.mes + ' 2026';
+    })
+    .catch(() => {});
 
   function cambiarBusqueda() {
     const tipo = document.getElementById('tipoBusqueda').value;
@@ -265,7 +244,7 @@
     document.getElementById('btnBuscarDNI').disabled = true;
     document.getElementById('cargandoDNI').style.display = 'block';
 
-    apiGet('buscarPorDNI', { dni: dni })
+    jsonpCall({ accion: 'buscarPorDNI', dni: dni })
       .then(resultado => {
         document.getElementById('btnBuscarDNI').disabled = false;
         document.getElementById('cargandoDNI').style.display = 'none';
@@ -283,22 +262,24 @@
       });
   }
 
-  let debounceSugerencias = null;
+  let __debounceTimer = null;
   function buscarSugerencias() {
     const nombre = document.getElementById('inputNombre').value.trim();
     if (nombre.length < 3) { document.getElementById('sugerencias').style.display = 'none'; return; }
-    if (debounceSugerencias) clearTimeout(debounceSugerencias);
-    debounceSugerencias = setTimeout(() => {
-      apiGet('buscarPorNombre', { nombre: nombre })
+
+    clearTimeout(__debounceTimer);
+    __debounceTimer = setTimeout(() => {
+      jsonpCall({ accion: 'buscarPorNombre', nombre: nombre })
         .then(nombres => {
           const div = document.getElementById('sugerencias');
-          if (!nombres.length) { div.style.display = 'none'; return; }
+          if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
           div.innerHTML = nombres.map(n =>
-            `<div class="sugerencia-item" onclick="seleccionarNombre('${n}')">${n}</div>`
+            '<div class="sugerencia-item" onclick="seleccionarNombre(\'' + n.replace(/'/g, "\\'") + '\')">' + n + '</div>'
           ).join('');
           div.style.display = 'block';
-        });
-    }, 500);
+        })
+        .catch(() => { document.getElementById('sugerencias').style.display = 'none'; });
+    }, 300);
   }
 
   function seleccionarNombre(nombre) {
@@ -308,7 +289,7 @@
     document.getElementById('errorBusqueda').textContent = '';
     document.getElementById('cargandoNombre').style.display = 'block';
 
-    apiGet('buscarPorDNI_porNombre', { nombre: nombre })
+    jsonpCall({ accion: 'buscarPorDNI_porNombre', nombre: nombre })
       .then(resultado => {
         document.getElementById('cargandoNombre').style.display = 'none';
         if (resultado.error) {
@@ -335,7 +316,7 @@
     document.getElementById('btnConfirmarDNI').disabled = true;
     document.getElementById('cargandoDNI2').style.display = 'block';
 
-    apiPost({ accion: 'guardarDNI', nombreAlumno: nombreSeleccionado, dni: dni })
+    jsonpCall({ accion: 'guardarDNI', nombreAlumno: nombreSeleccionado, dni: dni })
       .then(() => {
         document.getElementById('btnConfirmarDNI').disabled = false;
         document.getElementById('cargandoDNI2').style.display = 'none';
@@ -359,22 +340,13 @@
       const info = SEDES_INFO[s.sede] || { nombre: s.sede };
       const esTaxi = s.rol === 'Taxi' || Number(s.cuota) === 0;
       if (esTaxi) {
-        return `<div class="card-sede">
-          <div class="nombre-sede">${info.nombre}</div>
-          <div class="nivel-sede">${s.nivel}</div>
-          <div class="monto-taxi">🎟️ Taxi — Sin cargo</div>
-        </div>`;
+        return '<div class="card-sede"><div class="nombre-sede">' + info.nombre + '</div><div class="nivel-sede">' + s.nivel + '</div><div class="monto-taxi">🎟️ Taxi — Sin cargo</div></div>';
       }
       const cuota = Number(s.cuota);
       const descMonto = cuota === 37000 ? 'Abono mes 5 semanas' :
                         cuota === 32000 ? 'Abono mes 4 semanas' :
                         'Monto proporcional';
-      return `<div class="card-sede">
-        <div class="nombre-sede">${info.nombre}</div>
-        <div class="nivel-sede">${s.nivel}</div>
-        <div class="monto-sede">$${cuota.toLocaleString('es-AR')}</div>
-        <div style="font-size:12px; color:#888; margin-top:2px;">${descMonto}</div>
-      </div>`;
+      return '<div class="card-sede"><div class="nombre-sede">' + info.nombre + '</div><div class="nivel-sede">' + s.nivel + '</div><div class="monto-sede">$' + cuota.toLocaleString('es-AR') + '</div><div style="font-size:12px; color:#888; margin-top:2px;">' + descMonto + '</div></div>';
     }).join('');
 
     if (sedesAPagar.length > 0) {
@@ -382,12 +354,7 @@
       const cuentaGeneral = usaGDR
         ? { cuenta: 'gente.de.rock', titular: 'Juan Manuel Aron' }
         : { cuenta: 'gdr.prin.uala', titular: 'Sebastian Raul Zunda' };
-      listaSedes.innerHTML += `
-        <div class="cuenta-box" style="margin-top:16px">
-          <div class="cuenta-titulo">Depositá en:</div>
-          <div class="cuenta-alias" id="aliasTexto">${cuentaGeneral.cuenta}</div>
-          <div class="cuenta-nombre">A nombre de ${cuentaGeneral.titular}</div>
-        </div>`;
+      listaSedes.innerHTML += '<div class="cuenta-box" style="margin-top:16px"><div class="cuenta-titulo">Depositá en:</div><div class="cuenta-alias" id="aliasTexto">' + cuentaGeneral.cuenta + '</div><div class="cuenta-nombre">A nombre de ' + cuentaGeneral.titular + '</div></div>';
     }
 
     if (sedesAPagar.length === 0) {
@@ -419,22 +386,24 @@
     }
   }
 
-  let debounceSugerenciasPareja = null;
+  let __debounceTimerPareja = null;
   function buscarSugerenciasPareja() {
     const nombre = document.getElementById('inputPareja').value.trim();
     if (nombre.length < 3) { document.getElementById('sugerenciasPareja').style.display = 'none'; return; }
-    if (debounceSugerenciasPareja) clearTimeout(debounceSugerenciasPareja);
-    debounceSugerenciasPareja = setTimeout(() => {
-      apiGet('buscarPorNombre', { nombre: nombre })
+
+    clearTimeout(__debounceTimerPareja);
+    __debounceTimerPareja = setTimeout(() => {
+      jsonpCall({ accion: 'buscarPorNombre', nombre: nombre })
         .then(nombres => {
           const div = document.getElementById('sugerenciasPareja');
-          if (!nombres.length) { div.style.display = 'none'; return; }
+          if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
           div.innerHTML = nombres.map(n =>
-            `<div class="sugerencia-item" onclick="seleccionarPareja('${n}')">${n}</div>`
+            '<div class="sugerencia-item" onclick="seleccionarPareja(\'' + n.replace(/'/g, "\\'") + '\')">' + n + '</div>'
           ).join('');
           div.style.display = 'block';
-        });
-    }, 500);
+        })
+        .catch(() => { document.getElementById('sugerenciasPareja').style.display = 'none'; });
+    }, 300);
   }
 
   function seleccionarPareja(nombre) {
@@ -442,7 +411,7 @@
     document.getElementById('sugerenciasPareja').style.display = 'none';
     document.getElementById('cargandoPareja').style.display = 'block';
 
-    apiGet('buscarPorDNI_porNombre', { nombre: nombre })
+    jsonpCall({ accion: 'buscarPorDNI_porNombre', nombre: nombre })
       .then(resultado => {
         document.getElementById('cargandoPareja').style.display = 'none';
         if (resultado.error) {
@@ -457,12 +426,7 @@
           const descMontoP = cuotaP === 37000 ? 'Abono mes 5 semanas' :
                              cuotaP === 32000 ? 'Abono mes 4 semanas' :
                              'Monto proporcional';
-          return `<div class="card-sede pareja-card">
-            <div class="nombre-sede">${resultado.nombre}</div>
-            <div class="nivel-sede">${info.nombre} — ${s.nivel}</div>
-            <div class="monto-sede">$${cuotaP.toLocaleString('es-AR')}</div>
-            <div style="font-size:12px; color:#888; margin-top:2px;">${descMontoP}</div>
-          </div>`;
+          return '<div class="card-sede pareja-card"><div class="nombre-sede">' + resultado.nombre + '</div><div class="nivel-sede">' + info.nombre + ' — ' + s.nivel + '</div><div class="monto-sede">$' + cuotaP.toLocaleString('es-AR') + '</div><div style="font-size:12px; color:#888; margin-top:2px;">' + descMontoP + '</div></div>';
         }).join('');
         actualizarTotal();
       })
@@ -513,6 +477,7 @@
 
     reader.onload = function(e) {
       const base64 = e.target.result.split(',')[1];
+      const idOperacion = generarIdOperacion();
       const datosPago = {
         nombre: datosAlumno.nombre + (datosPareja ? ' + ' + datosPareja.nombre : ''),
         montoDeclarado: monto,
@@ -521,23 +486,26 @@
         sedePrincipal: datosAlumno.sedes.filter(s => s.rol !== 'Taxi')[0].sede
       };
 
-      apiPost({
+      postSinEspeada({
         accion: 'procesarPago',
+        idOperacion: idOperacion,
         datos: datosPago,
         archivoBase64: base64,
         nombreArchivo: archivo.name,
         mimeType: archivo.type
       })
-        .then(resultado => {
-          document.getElementById('resultadoOk').style.display = resultado.coincide ? 'block' : 'none';
-          document.getElementById('resultadoWarning').style.display = resultado.coincide ? 'none' : 'block';
-          mostrarPaso(4);
-        })
-        .catch(err => {
-          errorEl.textContent = 'Error al enviar: ' + err.message;
-          document.getElementById('btnEnviar').disabled = false;
-          document.getElementById('btnEnviar').textContent = 'Enviar comprobante';
-        });
+      .then(() => esperarResultado(idOperacion))
+      .then(resultado => {
+        if (resultado.error) throw new Error(resultado.error);
+        document.getElementById('resultadoOk').style.display = resultado.coincide ? 'block' : 'none';
+        document.getElementById('resultadoWarning').style.display = resultado.coincide ? 'none' : 'block';
+        mostrarPaso(4);
+      })
+      .catch(err => {
+        errorEl.textContent = 'Error al enviar: ' + err.message;
+        document.getElementById('btnEnviar').disabled = false;
+        document.getElementById('btnEnviar').textContent = 'Enviar comprobante';
+      });
     };
 
     reader.readAsDataURL(archivo);
@@ -548,10 +516,19 @@
     document.getElementById('paso' + n).classList.add('activo');
   }
 
+  function copiarAlias(alias) {
+    navigator.clipboard.writeText(alias).then(() => {
+      const msg = document.getElementById('msgCopiado');
+      if (msg) {
+        msg.style.display = 'block';
+        setTimeout(() => { msg.style.display = 'none'; }, 2000);
+      }
+    });
+  }
+
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js')
-      .then(() => console.log('Service Worker registrado correctamente.'))
-      .catch(err => console.log('No se pudo registrar el Service Worker:', err));
+    navigator.serviceWorker.register('https://gentederock.github.io/gdr-app/sw.js')
+      .catch(function(err) { console.log('No se pudo registrar el Service Worker:', err); });
   }
 </script>
 </body>
