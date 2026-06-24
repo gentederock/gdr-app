@@ -6,14 +6,10 @@ self.addEventListener('activate', function(event) {
   event.waitUntil(clients.claim());
 });
 
+// Este Service Worker no intercepta NADA de tráfico real.
+// Su único propósito es existir para que Chrome permita instalar la app.
+// No hacemos event.respondWith en ningún caso, así todo el tráfico
+// (búsquedas, pagos, fotos) sigue su curso normal sin pasar por acá.
 self.addEventListener('fetch', function(event) {
-  const url = new URL(event.request.url);
-  // Solo nos metemos en pedidos del propio sitio (GitHub Pages).
-  // Todo lo que va hacia Apps Script (otro dominio) lo dejamos pasar de largo,
-  // tal cual, sin que el Service Worker intervenga.
-  if (url.origin !== self.location.origin) {
-    return;
-  }
-  event.respondWith(fetch(event.request));
+  // Intencionalmente vacío.
 });
-
