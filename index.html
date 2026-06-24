@@ -158,73 +158,62 @@
     box.textContent = (box.textContent ? box.textContent + '\n' : '') + linea;
   }
 
-  // ============== JSONP HELPER ==============
-  let __jsonpCounter = 0;
-  function jsonpCall(params) {
-    return new Promise((resolve, reject) => {
-      __jsonpCounter++;
-      const callbackName = '__jsonp_cb_' + __jsonpCounter;
-      const script = document.createElement('script');
+  // ============== API CALL (fetch directo, sin JSONP) ==============
+  // Apps Script con deploy "Cualquier usuario" permite leer la respuesta
+  // con fetch CORS normal. Mucho más compatible que JSONP en Chrome Android.
+  function apiCall(params) {
+    const qs = new URLSearchParams(params);
+    const fullUrl = APPS_SCRIPT_URL + '?' + qs.toString();
 
-      const qs = new URLSearchParams(params);
-      qs.set('callback', callbackName);
-      const fullUrl = APPS_SCRIPT_URL + '?' + qs.toString();
+    debugLog('Llamando: ' + (params.accion || '?'));
 
-      debugLog('Llamando: ' + (params.accion || '?'));
-
-      const timeout = setTimeout(() => {
-        cleanup();
-        debugLog('TIMEOUT (20s) en: ' + (params.accion || '?') + ' — URL: ' + fullUrl);
-        reject(new Error('Tiempo de espera agotado. Probá de nuevo.'));
-      }, 20000);
-
-      function cleanup() {
-        clearTimeout(timeout);
-        delete window[callbackName];
-        if (script.parentNode) script.parentNode.removeChild(script);
-      }
-
-      window[callbackName] = function(data) {
-        debugLog('OK respuesta: ' + (params.accion || '?') + ' -> ' + JSON.stringify(data).slice(0, 150));
-        cleanup();
-        resolve(data);
-      };
-
-      script.src = fullUrl;
-      script.onerror = function() {
-        cleanup();
-        debugLog('ERROR DE CARGA del script (' + (params.accion || '?') + '). URL: ' + fullUrl);
-        reject(new Error('No se pudo conectar con el servidor.'));
-      };
-      document.body.appendChild(script);
-    });
-  }
-
-  // ============== POST + POLLING (solo para enviar comprobante) ==============
-  function postSinEspeada(payload) {
-    return fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    });
-  }
-
-  function esperarResultado(idOperacion, intentos) {
-    intentos = intentos || 0;
-    return jsonpCall({ accion: 'consultarResultado', idOperacion: idOperacion })
-      .then(resultado => {
-        if (resultado && resultado.pendiente) {
-          if (intentos > 20) throw new Error('El servidor tardó demasiado. Revisá tu conexión e intentá de nuevo.');
-          return new Promise(resolve => setTimeout(resolve, 1500))
-            .then(() => esperarResultado(idOperacion, intentos + 1));
+    return fetch(fullUrl)
+      .then(r => {
+        if (!r.ok) throw new Error('El servidor respondió con error ' + r.status);
+        return r.text();
+      })
+      .then(texto => {
+        let data;
+        try {
+          data = JSON.parse(texto);
+        } catch (e) {
+          debugLog('RESPUESTA NO ES JSON (' + (params.accion || '?') + '): ' + texto.slice(0, 150));
+          throw new Error('El servidor devolvió algo inesperado.');
         }
-        return resultado;
+        debugLog('OK respuesta: ' + (params.accion || '?') + ' -> ' + JSON.stringify(data).slice(0, 150));
+        return data;
+      })
+      .catch(err => {
+        debugLog('ERROR en ' + (params.accion || '?') + ': ' + err.message);
+        throw err;
       });
   }
 
-  function generarIdOperacion() {
-    return 'op_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  // ============== POST (envío de comprobante) ==============
+  // fetch CORS normal también funciona para POST en este deploy.
+  function apiPost(payload) {
+    debugLog('Enviando POST: ' + payload.accion);
+    return fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+      .then(r => r.text())
+      .then(texto => {
+        let data;
+        try {
+          data = JSON.parse(texto);
+        } catch (e) {
+          debugLog('RESPUESTA POST NO ES JSON: ' + texto.slice(0, 150));
+          throw new Error('El servidor devolvió algo inesperado al procesar el pago.');
+        }
+        debugLog('OK respuesta POST: ' + JSON.stringify(data).slice(0, 150));
+        return data;
+      })
+      .catch(err => {
+        debugLog('ERROR en POST: ' + err.message);
+        throw err;
+      });
   }
 
   // ============== SEDES INFO ==============
@@ -252,7 +241,7 @@
   let datosPareja = null;
   let nombreSeleccionado = null;
 
-  jsonpCall({ accion: 'mesNombre' })
+  apiCall({ accion: 'mesNombre' })
     .then(data => {
       document.getElementById('subtitulo').textContent = 'Portal de Pagos de Clases — ' + data.mes + ' 2026';
     })
@@ -272,7 +261,7 @@
     document.getElementById('btnBuscarDNI').disabled = true;
     document.getElementById('cargandoDNI').style.display = 'block';
 
-    jsonpCall({ accion: 'buscarPorDNI', dni: dni })
+    apiCall({ accion: 'buscarPorDNI', dni: dni })
       .then(resultado => {
         document.getElementById('btnBuscarDNI').disabled = false;
         document.getElementById('cargandoDNI').style.display = 'none';
@@ -297,7 +286,7 @@
 
     clearTimeout(__debounceTimer);
     __debounceTimer = setTimeout(() => {
-      jsonpCall({ accion: 'buscarPorNombre', nombre: nombre })
+      apiCall({ accion: 'buscarPorNombre', nombre: nombre })
         .then(nombres => {
           const div = document.getElementById('sugerencias');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
@@ -317,7 +306,7 @@
     document.getElementById('errorBusqueda').textContent = '';
     document.getElementById('cargandoNombre').style.display = 'block';
 
-    jsonpCall({ accion: 'buscarPorDNI_porNombre', nombre: nombre })
+    apiCall({ accion: 'buscarPorDNI_porNombre', nombre: nombre })
       .then(resultado => {
         document.getElementById('cargandoNombre').style.display = 'none';
         if (resultado.error) {
@@ -344,7 +333,7 @@
     document.getElementById('btnConfirmarDNI').disabled = true;
     document.getElementById('cargandoDNI2').style.display = 'block';
 
-    jsonpCall({ accion: 'guardarDNI', nombreAlumno: nombreSeleccionado, dni: dni })
+    apiCall({ accion: 'guardarDNI', nombreAlumno: nombreSeleccionado, dni: dni })
       .then(() => {
         document.getElementById('btnConfirmarDNI').disabled = false;
         document.getElementById('cargandoDNI2').style.display = 'none';
@@ -421,7 +410,7 @@
 
     clearTimeout(__debounceTimerPareja);
     __debounceTimerPareja = setTimeout(() => {
-      jsonpCall({ accion: 'buscarPorNombre', nombre: nombre })
+      apiCall({ accion: 'buscarPorNombre', nombre: nombre })
         .then(nombres => {
           const div = document.getElementById('sugerenciasPareja');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
@@ -439,7 +428,7 @@
     document.getElementById('sugerenciasPareja').style.display = 'none';
     document.getElementById('cargandoPareja').style.display = 'block';
 
-    jsonpCall({ accion: 'buscarPorDNI_porNombre', nombre: nombre })
+    apiCall({ accion: 'buscarPorDNI_porNombre', nombre: nombre })
       .then(resultado => {
         document.getElementById('cargandoPareja').style.display = 'none';
         if (resultado.error) {
@@ -505,7 +494,6 @@
 
     reader.onload = function(e) {
       const base64 = e.target.result.split(',')[1];
-      const idOperacion = generarIdOperacion();
       const datosPago = {
         nombre: datosAlumno.nombre + (datosPareja ? ' + ' + datosPareja.nombre : ''),
         montoDeclarado: monto,
@@ -514,15 +502,13 @@
         sedePrincipal: datosAlumno.sedes.filter(s => s.rol !== 'Taxi')[0].sede
       };
 
-      postSinEspeada({
+      apiPost({
         accion: 'procesarPago',
-        idOperacion: idOperacion,
         datos: datosPago,
         archivoBase64: base64,
         nombreArchivo: archivo.name,
         mimeType: archivo.type
       })
-      .then(() => esperarResultado(idOperacion))
       .then(resultado => {
         if (resultado.error) throw new Error(resultado.error);
         document.getElementById('resultadoOk').style.display = resultado.coincide ? 'block' : 'none';
