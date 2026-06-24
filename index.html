@@ -137,7 +137,6 @@
 </div>
 
 <script>
-  // ⚠️ Reemplazar esta URL por la URL /exec real de tu Apps Script (la de la copia)
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
 
   const SEDES_INFO = {
@@ -163,38 +162,60 @@
   let datosAlumno = null;
   let datosPareja = null;
   let nombreSeleccionado = null;
+  let jsonpContador = 0;
 
-  // --- Comunicación con Apps Script ---
-  //
-  // 1) Para ENVIAR datos (búsquedas, pagos, fotos): fetch en modo no-cors.
-  //    No podemos leer la respuesta de ese mismo viaje, pero el envío llega
-  //    completo siempre, en cualquier navegador, sin bloqueos.
-  //
-  // 2) Para LEER el resultado: consultamos aparte con un <script> JSONP,
-  //    pero solo pidiendo un dato chico (el resultado ya calculado),
-  //    nunca para mandar archivos pesados.
-
-  let operacionContador = 0;
-
-  function enviarYConsultar(datos) {
+  function apiGet(accion, params) {
     return new Promise((resolve, reject) => {
-      operacionContador++;
-      const idOperacion = 'op_' + Date.now() + '_' + operacionContador;
-      const datosConId = Object.assign({}, datos, { idOperacion: idOperacion });
+      jsonpContador++;
+      const nombreCallback = 'jsonpCallback_' + jsonpContador;
+      const nombreIframe = 'jsonpIframe_' + jsonpContador;
+
+      window[nombreCallback] = function(data) {
+        delete window[nombreCallback];
+        setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 100);
+        resolve(data);
+      };
+
+      const url = new URL(APPS_SCRIPT_URL);
+      url.searchParams.set('accion', accion);
+      url.searchParams.set('callback', nombreCallback);
+      Object.keys(params || {}).forEach(k => url.searchParams.set(k, params[k]));
+
+      const iframe = document.createElement('iframe');
+      iframe.name = nombreIframe;
+      iframe.style.display = 'none';
+      iframe.src = url.toString();
+      document.body.appendChild(iframe);
+
+      setTimeout(() => {
+        if (window[nombreCallback]) {
+          delete window[nombreCallback];
+          if (iframe.parentNode) document.body.removeChild(iframe);
+          reject(new Error('No se pudo conectar con el servidor.'));
+        }
+      }, 15000);
+    });
+  }
+
+  function apiPost(body) {
+    return new Promise((resolve, reject) => {
+      jsonpContador++;
+      const idOperacion = 'op_' + Date.now() + '_' + jsonpContador;
+      const bodyConId = Object.assign({}, body, { idOperacion: idOperacion });
 
       fetch(APPS_SCRIPT_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(datosConId)
-      }).catch(() => { /* no-cors puede marcar error de red aunque haya llegado bien */ });
+        body: JSON.stringify(bodyConId)
+      }).catch(() => {});
 
       let intentos = 0;
-      const maxIntentos = 30; // ~60 segundos de margen
+      const maxIntentos = 25;
 
       const intervalo = setInterval(() => {
         intentos++;
-        consultarResultado(idOperacion)
+        apiGet('consultarResultado', { idOperacion: idOperacion })
           .then(resultado => {
             if (resultado && resultado.pendiente) {
               if (intentos >= maxIntentos) {
@@ -212,47 +233,9 @@
               reject(new Error('Tiempo de espera agotado. Probá de nuevo.'));
             }
           });
-      }, 1500);
+      }, 2000);
     });
   }
-
-  function consultarResultado(idOperacion) {
-    return new Promise((resolve, reject) => {
-      operacionContador++;
-      const nombreCallback = 'cb_' + operacionContador;
-
-      window[nombreCallback] = function(data) {
-        delete window[nombreCallback];
-        script.remove();
-        resolve(data);
-      };
-
-      const url = APPS_SCRIPT_URL +
-        '?accion=consultarResultado&idOperacion=' + encodeURIComponent(idOperacion) +
-        '&callback=' + nombreCallback;
-
-      const script = document.createElement('script');
-      script.src = url;
-      script.onerror = function() {
-        delete window[nombreCallback];
-        script.remove();
-        reject(new Error('No se pudo conectar.'));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  // apiGet y apiPost quedan como nombres compatibles con el resto del código,
-  // ambos usan el mismo mecanismo de envío + consulta por debajo.
-  function apiGet(accion, params) {
-    return enviarYConsultar(Object.assign({ accion: accion }, params || {}));
-  }
-
-  function apiPost(body) {
-    return enviarYConsultar(body);
-  }
-
-  // --- Inicialización ---
 
   apiGet('mesNombre').then(resultado => {
     document.getElementById('subtitulo').textContent = 'Portal de Pagos de Clases — ' + resultado.mes + ' 2026';
@@ -547,7 +530,6 @@
     document.getElementById('paso' + n).classList.add('activo');
   }
 
-  // --- Registro del Service Worker (ahora sí, mismo dominio que la página) ---
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
       .then(() => console.log('Service Worker registrado correctamente.'))
