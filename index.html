@@ -273,18 +273,22 @@
       });
   }
 
+  let debounceSugerencias = null;
   function buscarSugerencias() {
     const nombre = document.getElementById('inputNombre').value.trim();
     if (nombre.length < 3) { document.getElementById('sugerencias').style.display = 'none'; return; }
-    apiGet('buscarPorNombre', { nombre: nombre })
-      .then(nombres => {
-        const div = document.getElementById('sugerencias');
-        if (!nombres.length) { div.style.display = 'none'; return; }
-        div.innerHTML = nombres.map(n =>
-          `<div class="sugerencia-item" onclick="seleccionarNombre('${n}')">${n}</div>`
-        ).join('');
-        div.style.display = 'block';
-      });
+    if (debounceSugerencias) clearTimeout(debounceSugerencias);
+    debounceSugerencias = setTimeout(() => {
+      apiGet('buscarPorNombre', { nombre: nombre })
+        .then(nombres => {
+          const div = document.getElementById('sugerencias');
+          if (!nombres.length) { div.style.display = 'none'; return; }
+          div.innerHTML = nombres.map(n =>
+            `<div class="sugerencia-item" onclick="seleccionarNombre('${n}')">${n}</div>`
+          ).join('');
+          div.style.display = 'block';
+        });
+    }, 500);
   }
 
   function seleccionarNombre(nombre) {
@@ -405,18 +409,22 @@
     }
   }
 
+  let debounceSugerenciasPareja = null;
   function buscarSugerenciasPareja() {
     const nombre = document.getElementById('inputPareja').value.trim();
     if (nombre.length < 3) { document.getElementById('sugerenciasPareja').style.display = 'none'; return; }
-    apiGet('buscarPorNombre', { nombre: nombre })
-      .then(nombres => {
-        const div = document.getElementById('sugerenciasPareja');
-        if (!nombres.length) { div.style.display = 'none'; return; }
-        div.innerHTML = nombres.map(n =>
-          `<div class="sugerencia-item" onclick="seleccionarPareja('${n}')">${n}</div>`
-        ).join('');
-        div.style.display = 'block';
-      });
+    if (debounceSugerenciasPareja) clearTimeout(debounceSugerenciasPareja);
+    debounceSugerenciasPareja = setTimeout(() => {
+      apiGet('buscarPorNombre', { nombre: nombre })
+        .then(nombres => {
+          const div = document.getElementById('sugerenciasPareja');
+          if (!nombres.length) { div.style.display = 'none'; return; }
+          div.innerHTML = nombres.map(n =>
+            `<div class="sugerencia-item" onclick="seleccionarPareja('${n}')">${n}</div>`
+          ).join('');
+          div.style.display = 'block';
+        });
+    }, 500);
   }
 
   function seleccionarPareja(nombre) {
@@ -530,18 +538,10 @@
     document.getElementById('paso' + n).classList.add('activo');
   }
 
-  // SERVICE WORKER TEMPORALMENTE DESACTIVADO PARA PRUEBA
-  // if ('serviceWorker' in navigator) {
-  //   navigator.serviceWorker.register('sw.js')
-  //     .then(() => console.log('Service Worker registrado correctamente.'))
-  //     .catch(err => console.log('No se pudo registrar el Service Worker:', err));
-  // }
-  if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-      for (let registration of registrations) {
-        registration.unregister();
-      }
-    });
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+      .then(() => console.log('Service Worker registrado correctamente.'))
+      .catch(err => console.log('No se pudo registrar el Service Worker:', err));
   }
 </script>
 </body>
