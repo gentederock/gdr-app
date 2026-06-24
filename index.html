@@ -139,8 +139,12 @@
   // ============== CONFIG ==============
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
 
-  // Captura cualquier error de JS que rompa la página, y lo muestra en pantalla
+  // Cambiar a true para reactivar el cartel de diagnóstico en pantalla
+  const DEBUG_VISIBLE = false;
+
+  // Captura cualquier error de JS que rompa la página, y lo muestra en pantalla (si DEBUG_VISIBLE)
   window.addEventListener('error', function(e) {
+    if (!DEBUG_VISIBLE) return;
     const box = document.getElementById('debugBox');
     if (box) {
       box.style.display = 'block';
@@ -150,7 +154,9 @@
   });
 
   // ============== DEBUG VISIBLE (para diagnosticar en celular) ==============
+  // ============== DEBUG (cambiar DEBUG_VISIBLE arriba a true para reactivar el cartel) ==============
   function debugLog(msg) {
+    if (!DEBUG_VISIBLE) return;
     const box = document.getElementById('debugBox');
     if (!box) return;
     box.style.display = 'block';
@@ -161,13 +167,13 @@
   // ============== API CALL (fetch directo, sin JSONP) ==============
   // Apps Script con deploy "Cualquier usuario" permite leer la respuesta
   // con fetch CORS normal. Mucho más compatible que JSONP en Chrome Android.
-  function apiCall(params) {
+  function apiCall(params, signal) {
     const qs = new URLSearchParams(params);
     const fullUrl = APPS_SCRIPT_URL + '?' + qs.toString();
 
     debugLog('Llamando: ' + (params.accion || '?'));
 
-    return fetch(fullUrl)
+    return fetch(fullUrl, signal ? { signal } : undefined)
       .then(r => {
         if (!r.ok) throw new Error('El servidor respondió con error ' + r.status);
         return r.text();
@@ -184,6 +190,7 @@
         return data;
       })
       .catch(err => {
+        if (err.name === 'AbortError') throw err; // cancelación intencional, no es un error real
         debugLog('ERROR en ' + (params.accion || '?') + ': ' + err.message);
         throw err;
       });
@@ -280,13 +287,16 @@
   }
 
   let __debounceTimer = null;
+  let __abortControllerNombre = null;
   function buscarSugerencias() {
     const nombre = document.getElementById('inputNombre').value.trim();
     if (nombre.length < 3) { document.getElementById('sugerencias').style.display = 'none'; return; }
 
     clearTimeout(__debounceTimer);
     __debounceTimer = setTimeout(() => {
-      apiCall({ accion: 'buscarPorNombre', nombre: nombre })
+      if (__abortControllerNombre) __abortControllerNombre.abort();
+      __abortControllerNombre = new AbortController();
+      apiCall({ accion: 'buscarPorNombre', nombre: nombre }, __abortControllerNombre.signal)
         .then(nombres => {
           const div = document.getElementById('sugerencias');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
@@ -295,8 +305,11 @@
           ).join('');
           div.style.display = 'block';
         })
-        .catch(() => { document.getElementById('sugerencias').style.display = 'none'; });
-    }, 300);
+        .catch(err => {
+          if (err.name === 'AbortError') return; // se canceló por una búsqueda más nueva, ignorar
+          document.getElementById('sugerencias').style.display = 'none';
+        });
+    }, 500);
   }
 
   function seleccionarNombre(nombre) {
@@ -404,13 +417,16 @@
   }
 
   let __debounceTimerPareja = null;
+  let __abortControllerPareja = null;
   function buscarSugerenciasPareja() {
     const nombre = document.getElementById('inputPareja').value.trim();
     if (nombre.length < 3) { document.getElementById('sugerenciasPareja').style.display = 'none'; return; }
 
     clearTimeout(__debounceTimerPareja);
     __debounceTimerPareja = setTimeout(() => {
-      apiCall({ accion: 'buscarPorNombre', nombre: nombre })
+      if (__abortControllerPareja) __abortControllerPareja.abort();
+      __abortControllerPareja = new AbortController();
+      apiCall({ accion: 'buscarPorNombre', nombre: nombre }, __abortControllerPareja.signal)
         .then(nombres => {
           const div = document.getElementById('sugerenciasPareja');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
@@ -419,8 +435,11 @@
           ).join('');
           div.style.display = 'block';
         })
-        .catch(() => { document.getElementById('sugerenciasPareja').style.display = 'none'; });
-    }, 300);
+        .catch(err => {
+          if (err.name === 'AbortError') return;
+          document.getElementById('sugerenciasPareja').style.display = 'none';
+        });
+    }, 500);
   }
 
   function seleccionarPareja(nombre) {
