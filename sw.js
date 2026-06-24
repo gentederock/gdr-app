@@ -6,10 +6,7 @@ self.addEventListener('activate', function(event) {
   event.waitUntil(clients.claim());
 });
 
-// Este Service Worker no intercepta NADA de tráfico real.
-// Su único propósito es existir para que Chrome permita instalar la app.
-// No hacemos event.respondWith en ningún caso, así todo el tráfico
-// (búsquedas, pagos, fotos) sigue su curso normal sin pasar por acá.
 self.addEventListener('fetch', function(event) {
-  // Intencionalmente vacío.
+  // Intencionalmente vacío: este Service Worker no intercepta tráfico real,
+  // solo existe para que el navegador permita instalar la app.
 });
