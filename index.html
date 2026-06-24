@@ -530,10 +530,18 @@
     document.getElementById('paso' + n).classList.add('activo');
   }
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js')
-      .then(() => console.log('Service Worker registrado correctamente.'))
-      .catch(err => console.log('No se pudo registrar el Service Worker:', err));
+  // SERVICE WORKER TEMPORALMENTE DESACTIVADO PARA PRUEBA
+  // if ('serviceWorker' in navigator) {
+  //   navigator.serviceWorker.register('sw.js')
+  //     .then(() => console.log('Service Worker registrado correctamente.'))
+  //     .catch(err => console.log('No se pudo registrar el Service Worker:', err));
+  // }
+  if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for (let registration of registrations) {
+        registration.unregister();
+      }
+    });
   }
 </script>
 </body>
