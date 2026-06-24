@@ -164,7 +164,7 @@
   let nombreSeleccionado = null;
   let jsonpContador = 0;
 
-  function apiGet(accion, params) {
+  function apiGetIntento(accion, params) {
     return new Promise((resolve, reject) => {
       jsonpContador++;
       const nombreCallback = 'jsonpCallback_' + jsonpContador;
@@ -184,8 +184,10 @@
       const iframe = document.createElement('iframe');
       iframe.name = nombreIframe;
       iframe.style.display = 'none';
-      iframe.src = url.toString();
+      iframe.loading = 'eager';
+      iframe.referrerPolicy = 'no-referrer';
       document.body.appendChild(iframe);
+      iframe.src = url.toString();
 
       setTimeout(() => {
         if (window[nombreCallback]) {
@@ -193,8 +195,16 @@
           if (iframe.parentNode) document.body.removeChild(iframe);
           reject(new Error('No se pudo conectar con el servidor.'));
         }
-      }, 15000);
+      }, 8000);
     });
+  }
+
+  // El navegador a veces "gasta" la URL de un solo uso antes de tiempo
+  // (precarga especulativa). Si el primer intento falla, reintentamos
+  // automáticamente una vez más con una petición nueva, sin que el
+  // alumno note nada raro.
+  function apiGet(accion, params) {
+    return apiGetIntento(accion, params).catch(() => apiGetIntento(accion, params));
   }
 
   function apiPost(body) {
