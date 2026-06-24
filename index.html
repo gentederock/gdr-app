@@ -81,6 +81,7 @@
     <div id="busquedaNombre" style="display:none">
       <label>Tu nombre y apellido</label>
       <input type="text" id="inputNombre" placeholder="Escribí tu nombre..." oninput="buscarSugerencias()">
+      <p id="buscandoSugerencias" class="cargando">🔍 Buscando...</p>
       <div id="sugerencias" class="sugerencias" style="display:none"></div>
       <p id="cargandoNombre" class="cargando">🔍 Cargando tu información...</p>
       <p style="font-size:12px; color:#666; margin-top:8px;">* La primera vez guardamos tu DNI para que la próxima sea más rápido</p>
@@ -113,6 +114,7 @@
       </label>
       <div id="busquedaPareja" style="display:none; margin-top:12px">
         <input type="text" id="inputPareja" placeholder="Buscá el nombre de tu pareja..." oninput="buscarSugerenciasPareja()">
+        <p id="buscandoSugerenciasPareja" class="cargando">🔍 Buscando...</p>
         <div id="sugerenciasPareja" class="sugerencias" style="display:none"></div>
         <p id="cargandoPareja" class="cargando">🔍 Cargando información de tu pareja...</p>
         <div id="resumenPareja" style="margin-top:8px"></div>
@@ -153,7 +155,7 @@
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
 
   // Cambiar a true para reactivar el cartel de diagnóstico en pantalla
-  const DEBUG_VISIBLE = true;
+  const DEBUG_VISIBLE = false;
 
   // Captura cualquier error de JS que rompa la página, y lo muestra en pantalla (si DEBUG_VISIBLE)
   window.addEventListener('error', function(e) {
@@ -303,7 +305,14 @@
   let __abortControllerNombre = null;
   function buscarSugerencias() {
     const nombre = document.getElementById('inputNombre').value.trim();
-    if (nombre.length < 3) { document.getElementById('sugerencias').style.display = 'none'; return; }
+    const indicador = document.getElementById('buscandoSugerencias');
+    if (nombre.length < 3) {
+      document.getElementById('sugerencias').style.display = 'none';
+      indicador.style.display = 'none';
+      return;
+    }
+
+    indicador.style.display = 'block';
 
     clearTimeout(__debounceTimer);
     __debounceTimer = setTimeout(() => {
@@ -311,6 +320,7 @@
       __abortControllerNombre = new AbortController();
       apiCall({ accion: 'buscarPorNombre', nombre: nombre }, __abortControllerNombre.signal)
         .then(nombres => {
+          indicador.style.display = 'none';
           const div = document.getElementById('sugerencias');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
           div.innerHTML = nombres.map(n =>
@@ -320,6 +330,7 @@
         })
         .catch(err => {
           if (err.name === 'AbortError') return; // se canceló por una búsqueda más nueva, ignorar
+          indicador.style.display = 'none';
           document.getElementById('sugerencias').style.display = 'none';
         });
     }, 500);
@@ -433,7 +444,14 @@
   let __abortControllerPareja = null;
   function buscarSugerenciasPareja() {
     const nombre = document.getElementById('inputPareja').value.trim();
-    if (nombre.length < 3) { document.getElementById('sugerenciasPareja').style.display = 'none'; return; }
+    const indicador = document.getElementById('buscandoSugerenciasPareja');
+    if (nombre.length < 3) {
+      document.getElementById('sugerenciasPareja').style.display = 'none';
+      indicador.style.display = 'none';
+      return;
+    }
+
+    indicador.style.display = 'block';
 
     clearTimeout(__debounceTimerPareja);
     __debounceTimerPareja = setTimeout(() => {
@@ -441,6 +459,7 @@
       __abortControllerPareja = new AbortController();
       apiCall({ accion: 'buscarPorNombre', nombre: nombre }, __abortControllerPareja.signal)
         .then(nombres => {
+          indicador.style.display = 'none';
           const div = document.getElementById('sugerenciasPareja');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
           div.innerHTML = nombres.map(n =>
@@ -450,6 +469,7 @@
         })
         .catch(err => {
           if (err.name === 'AbortError') return;
+          indicador.style.display = 'none';
           document.getElementById('sugerenciasPareja').style.display = 'none';
         });
     }, 500);
