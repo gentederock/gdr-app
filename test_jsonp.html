@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Test JSONP</title></head>
+<body style="font-family:Arial; padding:20px; font-size:18px;">
+<h2>Test de conexión</h2>
+<div id="resultado" style="background:#eee; padding:16px; border-radius:8px; white-space:pre-wrap; word-break:break-all;">Esperando...</div>
+
+<script>
+  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
+  const div = document.getElementById('resultado');
+
+  function log(msg) {
+    div.textContent += '\n' + msg;
+  }
+
+  // Test 1: JSONP clásico (script tag)
+  window.__test_cb = function(data) {
+    log('✅ JSONP OK: ' + JSON.stringify(data));
+  };
+  const script = document.createElement('script');
+  script.src = APPS_SCRIPT_URL + '?accion=mesNombre&callback=__test_cb';
+  script.onerror = function() { log('❌ JSONP FALLÓ (onerror disparado)'); };
+  document.body.appendChild(script);
+
+  setTimeout(function() {
+    log('--- (si no ves ✅ arriba en 5s, el script no cargó) ---');
+  }, 5000);
+
+  // Test 2: fetch normal (sin JSONP), para ver si el dominio responde en general
+  fetch(APPS_SCRIPT_URL + '?accion=mesNombre', { mode: 'no-cors' })
+    .then(function(r) { log('✅ FETCH no-cors OK (status oculto por no-cors, pero no tiró excepción)'); })
+    .catch(function(e) { log('❌ FETCH FALLÓ: ' + e.message); });
+
+  // Test 3: cargar un script externo de OTRO dominio, para ver si el problema es general o específico de Google
+  const script2 = document.createElement('script');
+  script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js';
+  script2.onload = function() { log('✅ Script externo (cdnjs) cargó bien — typeof _ = ' + typeof _); };
+  script2.onerror = function() { log('❌ Script externo (cdnjs) también FALLÓ'); };
+  document.body.appendChild(script2);
+</script>
+</body>
+</html>
