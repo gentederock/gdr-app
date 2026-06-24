@@ -63,6 +63,7 @@
   }, 900);
 </script>
 <div class="container">
+  <button id="btnInstalar" onclick="instalarApp()" style="display:none; background:#27ae60; margin-bottom:16px; margin-top:0;">📲 Instalar esta app en tu celular</button>
   <p class="subtitulo" id="subtitulo" style="font-size:16px; font-weight:bold; color:#c0392b;">Portal de Pagos</p>
 
   <!-- PASO 1 -->
@@ -596,6 +597,36 @@
     navigator.serviceWorker.register('https://gentederock.github.io/gdr-app/sw.js')
       .catch(function(err) { console.log('No se pudo registrar el Service Worker:', err); });
   }
+
+  // ============== BOTÓN DE INSTALACIÓN (solo Android/Chrome) ==============
+  // Chrome dispara este evento cuando la PWA cumple los requisitos para instalarse.
+  // En iPhone/Safari este evento no existe — ahí el botón nunca aparece,
+  // y el único camino sigue siendo el manual (Compartir → Agregar a inicio).
+  let __deferredInstallPrompt = null;
+
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    __deferredInstallPrompt = e;
+    const btn = document.getElementById('btnInstalar');
+    if (btn) btn.style.display = 'block';
+  });
+
+  function instalarApp() {
+    if (!__deferredInstallPrompt) return;
+    __deferredInstallPrompt.prompt();
+    __deferredInstallPrompt.userChoice.then(function() {
+      __deferredInstallPrompt = null;
+      const btn = document.getElementById('btnInstalar');
+      if (btn) btn.style.display = 'none';
+    });
+  }
+
+  // Si ya está instalada (corriendo en modo standalone), nunca mostrar el botón
+  window.addEventListener('appinstalled', function() {
+    const btn = document.getElementById('btnInstalar');
+    if (btn) btn.style.display = 'none';
+    __deferredInstallPrompt = null;
+  });
 </script>
 </body>
 </html>
