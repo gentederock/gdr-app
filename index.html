@@ -156,7 +156,7 @@
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
 
   // Cambiar a true para reactivar el cartel de diagnóstico en pantalla
-  const DEBUG_VISIBLE = false;
+  const DEBUG_VISIBLE = true;
 
   // Captura cualquier error de JS que rompa la página, y lo muestra en pantalla (si DEBUG_VISIBLE)
   window.addEventListener('error', function(e) {
@@ -304,6 +304,7 @@
 
   let __debounceTimer = null;
   let __abortControllerNombre = null;
+  let __busquedaNombreId = 0;
   function buscarSugerencias() {
     const nombre = document.getElementById('inputNombre').value.trim();
     const indicador = document.getElementById('buscandoSugerencias');
@@ -319,8 +320,12 @@
     __debounceTimer = setTimeout(() => {
       if (__abortControllerNombre) __abortControllerNombre.abort();
       __abortControllerNombre = new AbortController();
+      __busquedaNombreId++;
+      const miId = __busquedaNombreId;
+
       apiCall({ accion: 'buscarPorNombre', nombre: nombre }, __abortControllerNombre.signal)
         .then(nombres => {
+          if (miId !== __busquedaNombreId) return; // llegó una búsqueda más nueva mientras esta volvía, ignorar resultado viejo
           indicador.style.display = 'none';
           const div = document.getElementById('sugerencias');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
@@ -330,7 +335,7 @@
           div.style.display = 'block';
         })
         .catch(err => {
-          if (err.name === 'AbortError') return; // se canceló por una búsqueda más nueva, ignorar
+          if (miId !== __busquedaNombreId) return; // búsqueda vieja cancelada, la más nueva ya se está ocupando del indicador
           indicador.style.display = 'none';
           document.getElementById('sugerencias').style.display = 'none';
         });
@@ -443,6 +448,7 @@
 
   let __debounceTimerPareja = null;
   let __abortControllerPareja = null;
+  let __busquedaParejaId = 0;
   function buscarSugerenciasPareja() {
     const nombre = document.getElementById('inputPareja').value.trim();
     const indicador = document.getElementById('buscandoSugerenciasPareja');
@@ -458,8 +464,12 @@
     __debounceTimerPareja = setTimeout(() => {
       if (__abortControllerPareja) __abortControllerPareja.abort();
       __abortControllerPareja = new AbortController();
+      __busquedaParejaId++;
+      const miId = __busquedaParejaId;
+
       apiCall({ accion: 'buscarPorNombre', nombre: nombre }, __abortControllerPareja.signal)
         .then(nombres => {
+          if (miId !== __busquedaParejaId) return;
           indicador.style.display = 'none';
           const div = document.getElementById('sugerenciasPareja');
           if (!nombres || !nombres.length) { div.style.display = 'none'; return; }
@@ -469,7 +479,7 @@
           div.style.display = 'block';
         })
         .catch(err => {
-          if (err.name === 'AbortError') return;
+          if (miId !== __busquedaParejaId) return;
           indicador.style.display = 'none';
           document.getElementById('sugerenciasPareja').style.display = 'none';
         });
