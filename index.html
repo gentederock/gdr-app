@@ -75,6 +75,8 @@
     <p id="errorBusqueda" class="error"></p>
   </div>
 
+  <div id="debugBox" style="display:none; background:#fff3cd; border:1px solid #ffc107; border-radius:8px; padding:12px; margin-top:16px; font-size:12px; color:#664d03; word-break:break-all; white-space:pre-wrap;"></div>
+
   <!-- PASO 2 -->
   <div id="paso2" class="paso">
     <p style="margin-bottom:16px">Hola <strong id="nombreConfirm"></strong>, para agilizar futuros pagos ingresá tu DNI:</p>
@@ -137,6 +139,25 @@
   // ============== CONFIG ==============
   const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzP5FoVAOj3zK939YJhGQYJp1D3bnYUrJeFRKIsIgs8vwonLcTWUa4FONypA3vND4MWVg/exec';
 
+  // Captura cualquier error de JS que rompa la página, y lo muestra en pantalla
+  window.addEventListener('error', function(e) {
+    const box = document.getElementById('debugBox');
+    if (box) {
+      box.style.display = 'block';
+      box.textContent = (box.textContent ? box.textContent + '\n' : '') +
+        'ERROR JS: ' + e.message + ' (línea ' + e.lineno + ')';
+    }
+  });
+
+  // ============== DEBUG VISIBLE (para diagnosticar en celular) ==============
+  function debugLog(msg) {
+    const box = document.getElementById('debugBox');
+    if (!box) return;
+    box.style.display = 'block';
+    const linea = new Date().toLocaleTimeString() + ' — ' + msg;
+    box.textContent = (box.textContent ? box.textContent + '\n' : '') + linea;
+  }
+
   // ============== JSONP HELPER ==============
   let __jsonpCounter = 0;
   function jsonpCall(params) {
@@ -145,8 +166,15 @@
       const callbackName = '__jsonp_cb_' + __jsonpCounter;
       const script = document.createElement('script');
 
+      const qs = new URLSearchParams(params);
+      qs.set('callback', callbackName);
+      const fullUrl = APPS_SCRIPT_URL + '?' + qs.toString();
+
+      debugLog('Llamando: ' + (params.accion || '?'));
+
       const timeout = setTimeout(() => {
         cleanup();
+        debugLog('TIMEOUT (20s) en: ' + (params.accion || '?') + ' — URL: ' + fullUrl);
         reject(new Error('Tiempo de espera agotado. Probá de nuevo.'));
       }, 20000);
 
@@ -157,15 +185,15 @@
       }
 
       window[callbackName] = function(data) {
+        debugLog('OK respuesta: ' + (params.accion || '?') + ' -> ' + JSON.stringify(data).slice(0, 150));
         cleanup();
         resolve(data);
       };
 
-      const qs = new URLSearchParams(params);
-      qs.set('callback', callbackName);
-      script.src = APPS_SCRIPT_URL + '?' + qs.toString();
+      script.src = fullUrl;
       script.onerror = function() {
         cleanup();
+        debugLog('ERROR DE CARGA del script (' + (params.accion || '?') + '). URL: ' + fullUrl);
         reject(new Error('No se pudo conectar con el servidor.'));
       };
       document.body.appendChild(script);
